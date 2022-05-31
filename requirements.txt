@@ -1,0 +1,13 @@
+dt_apriltags
+joblib
+math3d
+matplotlib
+numpy
+open3d
+opencv_python
+pyrealsense2
+pyserial
+PyYAML
+scikit_learn
+scipy
+tqdm
