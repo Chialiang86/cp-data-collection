@@ -24,6 +24,7 @@ class MeshModel:
         for smp in tqdm(smpMng, desc="Processing Images"):
             intr_mat = smp['intr']
             heigh, width = smp['depth'].shape
+            smp['color'] = smp['color'][...,::-1].copy()
             intrinsic = o3d.camera.PinholeCameraIntrinsic(width, heigh, 
                     intr_mat[0,0], intr_mat[1,1], intr_mat[0,2], intr_mat[1,2])
             color, depth = o3d.geometry.Image(smp['color']), o3d.geometry.Image(smp['depth'])

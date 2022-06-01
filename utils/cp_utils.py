@@ -2,7 +2,7 @@ from sklearn.cluster import DBSCAN
 import numpy as np
 import cv2
 
-def weighted_image(img, weight=[2,1,-3]):
+def weighted_image(img, weight=[-3,1,2]):
     float_img = np.array(img).astype(float)
     ret = np.zeros(img.shape[:2])
     for i, w in enumerate(weight):
@@ -32,10 +32,10 @@ def heatmap(imsize, xys, var):
         ret += np.exp(-(((gridc - xy[0])**2) + (gridr - xy[1])**2) / (2 * var)) 
     
     ret = ret / np.max(ret) * 255 # normalized
-    ret = cv2.applyColorMap(ret.astype(np.uint8), cv2.COLORMAP_JET)
-    return ret
+    rendered_ret = cv2.applyColorMap(ret.astype(np.uint8), cv2.COLORMAP_JET)
+    return ret, rendered_ret
 
-def ray_marching_by_pose(pose, intrinsic, max_xy, scale):
+def ray_marching_by_pose(pose, intrinsic, max_xy, scale=1):
     assert pose.shape == (4, 4), f'the pose shape is invalid : {pose.shape}'
     
     # project point
@@ -43,13 +43,13 @@ def ray_marching_by_pose(pose, intrinsic, max_xy, scale):
 
     # intrinsic param
     focal_len = (intrinsic[0, 0] + intrinsic[1, 1]) / 2
-    center_r = intrinsic[0, 2]
-    center_c = intrinsic[1, 2]
-    cp_r = xy[1] - center_r 
-    cp_c = xy[0] - center_c 
+    center_x = intrinsic[0, 2]
+    center_y = intrinsic[1, 2]
+    cp_x = xy[1] - center_x 
+    cp_y = xy[0] - center_y 
 
-    unit_dir = np.array([[cp_r],[cp_c],[focal_len]])
-    unit_dir /= np.sum(unit_dir) 
+    unit_dir = np.array([[cp_x],[cp_y],[focal_len]])
+    unit_dir /= np.sum(unit_dir ** 2) ** 0.5
     unit_dir *= scale
     unit_dir = np.vstack((unit_dir, [[1]]))
 

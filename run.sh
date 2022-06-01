@@ -4,11 +4,7 @@ function=$1
 
 if [ $# -ge 1 ]; then
 
-    if [ $function = 'catchcp' ]; then 
-    
-        python3 catch_contact_point.py --mat-input-dir 'viewer_out' --pcd-input-dir 'mesh_model' --obj 'tt_scissor' --output-dir 'contact_point'
-    
-    elif [ $function = 'camcap' ]; then 
+    if [ $function = 'camcap' ]; then 
     
         if [ $# -eq 2 ]; then
             OUT_DIR=$2
@@ -21,6 +17,23 @@ if [ $# -ge 1 ]; then
             python camera_capturer.py --root 'cam_output' --out_dir '0531-1'
         fi
     
+    elif [ $function = 'catchcp' ]; then 
+        if [ $# -eq 2 ]; then
+            INPUT=$2
+            python3 catch_contact_point.py --root 'cam_output' --in-dir ${INPUT} --out-dir 'annotation'
+        elif [ $# -eq 3 ]; then
+            INPUT=$2
+            OUTPUT=$3
+            python3 catch_contact_point.py --root 'cam_output' --in-dir ${INPUT} --out-dir ${OUTPUT}
+        elif [ $# -eq 4 ]; then
+            ROOT=$2
+            INPUT=$3
+            OUTPUT=$4
+            python3 catch_contact_point.py --root ${ROOT} --in-dir ${INPUT} --out-dir ${OUTPUT}
+        else 
+            python3 catch_contact_point.py --root 'cam_output' --in-dir '0531-1' --out-dir 'annotation'
+        fi
+
     elif [ $function = 'pcd' ]; then 
     
         if [ $# -eq 2 ]; then
@@ -41,7 +54,7 @@ if [ $# -ge 1 ]; then
             OBJ=$3
             python ply_show.py --root $ROOT --obj $OBJ
         else 
-            python ply_show.py --root 'mesh_model' --obj 'scissor'
+            python ply_show.py --root 'cam_output' --obj '0531-1'
         fi
     
     else
