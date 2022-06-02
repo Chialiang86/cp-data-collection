@@ -119,7 +119,7 @@ def main(args):
     smpMng = SampleManager(complete_mat_in_dirs, depth_scale=8000, loader=mat_loader, cx=0.092, cy=0.12, cz=0.003)
     print('[ Running TSDF fusion to reconstruct the 3D model ... ]')
     mesh_model = smpMng.meshModel # voxel_length=0.002, sdf_trunc=0.01
-    mesh_model.crop(pt1=(-0.15, -0.15, 0.005), pt2=(0.15, 0.15, 0.5))
+    mesh_model.crop(pt1=(-0.15, -0.15, 0.01), pt2=(0.15, 0.15, 0.5))
 
     mesh_model.visualize()
     pcd = o3d.geometry.PointCloud()
@@ -226,7 +226,7 @@ def main(args):
     
     
     o3d.io.write_triangle_mesh("{}/mesh.obj".format(output_dir), mesh)
-    o3d.io.write_point_cloud("{}/mesh.obj".format(output_dir), clustered_pcd)
+    # o3d.io.write_point_cloud("{}/mesh.ply".format(output_dir), clustered_pcd)
     print("{}/mesh.obj saved".format(output_dir))
 
 

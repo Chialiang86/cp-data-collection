@@ -1,6 +1,6 @@
 import numpy as np
 import pyrealsense2 as rs
-import os, cv2, glob, time, joblib, serial
+import os, cv2, glob, time, joblib
 
 
 class realsense_cam:
