@@ -58,7 +58,27 @@ def ray_marching_by_pose(pose, intrinsic, max_xy, scale=1):
     end = pose @ unit_dir
 
     return start[:3,-1].reshape(3), end[:3,-1].reshape(3)
+    
+def nearest_point_of_all_lines(r_list, v_list):
+    r_list, v_list = np.asarray(r_list), np.asarray(v_list) 
+    assert r_list.shape[1] == 3 and v_list.shape[1] == 3 and r_list.shape[0] == v_list.shape[0]
+    
+    # p = A^(-1) @ B
+    A = np.zeros((3, 3))
+    B = np.zeros((3, 1))
+    I = np.identity(3)
 
+    for i in range(r_list.shape[0]):
+        n_norm = v_list[i] / np.sum(v_list[i] ** 2) ** 0.5
+        nnT = n_norm.reshape(3, 1) @ n_norm.reshape(1, 3)
+        A += (I - nnT)
+        B += ((I - nnT) @ r_list[i].reshape(3, 1))
+    
+    # todo : modify as epslon
+    assert np.linalg.det(A) != 0
+    p = np.linalg.inv(A) @ B
+
+    return p
 def nearset_point_of_two_lines(r1, v1, r2, v2):
     v1 /= (np.sum(v1**2) ** 0.5) # normalized
     v2 /= (np.sum(v2**2) ** 0.5) # normalized

@@ -47,14 +47,22 @@ if [ $# -ge 1 ]; then
             python3 point_cloud.py --root 'cam_output' --in_dir '0531-1' --out_dir '0531-1'
         fi
     
-    elif [ $function = 'pcdshow' ]; then 
+    elif [ $function = 'mesh' ]; then 
 
-        if [ $# -eq 3 ]; then
+        if [ $# -eq 2 ]; then
+            INPUT=$2
+            python3 mesh.py --root 'cam_output' --in-dir ${INPUT} --out-dir 'annotation'
+        elif [ $# -eq 3 ]; then
+            INPUT=$2
+            OUTPUT=$3
+            python3 mesh.py --root 'cam_output' --in-dir ${INPUT} --out-dir ${OUTPUT}
+        elif [ $# -eq 4 ]; then
             ROOT=$2
-            OBJ=$3
-            python3 ply_show.py --root $ROOT --obj $OBJ
+            INPUT=$3
+            OUTPUT=$4
+            python3 mesh.py --root ${ROOT} --in-dir ${INPUT} --out-dir ${OUTPUT}
         else 
-            python3 ply_show.py --root 'cam_output' --obj '0531-1'
+            python3 mesh.py --root 'cam_output' --in-dir '0531-1' --out-dir 'annotation'
         fi
     
     else

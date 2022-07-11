@@ -8,9 +8,8 @@ import glob
 import json
 
 from utils.loader import mat_loader
-from utils.cp_utils import weighted_image, DBSCAN_pcd, nearset_point_of_two_lines, ray_marching_by_pose, heatmap
+from utils.cp_utils import weighted_image, DBSCAN_pcd, nearest_point_of_all_lines, ray_marching_by_pose, heatmap
 from utils.point_cloud import SampleManager
-
 
 def main(args):
 
@@ -28,7 +27,8 @@ def main(args):
     # check and config dir
     assert os.path.exists(root), f'input dir {root} not exists'
     assert os.path.exists(input_dir), f'input dir {input_dir} not exists'
-    complete_mat_in_dirs = glob.glob(f'{input_dir}/*/mat')
+    complete_mat_in_dirs = glob.glob(f'{input_dir}/*/mat_static')
+    print(complete_mat_in_dirs)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
     for key in output_subdirs.keys():
@@ -74,7 +74,6 @@ def main(args):
         max_xy.astype(np.uint16)
         conf, rendered_conf = heatmap(weighted_color.shape[:2], max_xy, 150)
         conf_heatmap = cv2.addWeighted(color, 0.3, rendered_conf, 0.7, 0)
-
 
         # ray marching
         start, end = ray_marching_by_pose(np.linalg.inv(pose), intrinsic, max_xy, 1)
@@ -142,32 +141,40 @@ def main(args):
 
     # get candidate contact points candidate by find the nearest points of two lines
     print('[ Computing the candidate contact points ... ]')
-    candidate_cp_pts = []
-    for i in range(len(line_vec)):
-        for j in range(i + 1, len(line_vec)):
-            if i != j:
-                x1, x2 = nearset_point_of_two_lines(line_pts[i * 2], line_vec[i], line_pts[j * 2], line_vec[j])
-                candidate_cp_pts.append(x1)
-                candidate_cp_pts.append(x2)
-    candidate_cp_pts = np.array(candidate_cp_pts)
-    candidate_cp_pcd = o3d.geometry.PointCloud()
-    candidate_cp_pcd.points = o3d.utility.Vector3dVector(candidate_cp_pts)
-    candidate_cp_pcd.colors = o3d.utility.Vector3dVector([[0, 1, 0] for i in range(len(line_pts))])
-    model_3d_noised.append(candidate_cp_pcd)
+    # get contact point candidate
+    line_start_pts = [line_pts[2 * i] for i in range(len(line_pts) // 2)]
+    p = nearest_point_of_all_lines(line_start_pts, line_vec)
+    sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.01, resolution=20, create_uv_map=True)
+    sphere.translate(p, relative=False)
+    model_3d_noised.append(sphere)
+    model_3d_denoised.append(sphere)
+
+    # candidate_cp_pts = []
+    # for i in range(len(line_vec)):
+    #     for j in range(i + 1, len(line_vec)):
+    #         if i != j:
+    #             x1, x2 = nearset_point_of_two_lines(line_pts[i * 2], line_vec[i], line_pts[j * 2], line_vec[j])
+    #             candidate_cp_pts.append(x1)
+    #             candidate_cp_pts.append(x2)
+    # candidate_cp_pts = np.array(candidate_cp_pts)
+    # candidate_cp_pcd = o3d.geometry.PointCloud()
+    # candidate_cp_pcd.points = o3d.utility.Vector3dVector(candidate_cp_pts)
+    # candidate_cp_pcd.colors = o3d.utility.Vector3dVector([[0, 1, 0] for i in range(len(line_pts))])
+    # model_3d_noised.append(candidate_cp_pcd)
 
     # runing DBSCAN of denoised contact points
-    print('[ Computing the clustered contact points ... ]')
-    clustered_cp_ind = DBSCAN_pcd(candidate_cp_pts, eps=0.005, min_samples=5, max_cluster=2)
-    if len(clustered_cp_ind) != 0: 
-        clustered_cp_pts = candidate_cp_pts[clustered_cp_ind]
-        clustered_cp_pcd = o3d.geometry.PointCloud()
-        clustered_cp_pcd.points = o3d.utility.Vector3dVector(clustered_cp_pts)
-        clustered_cp_pcd.colors = o3d.utility.Vector3dVector([[0, 0, 1] for i in range(len(clustered_cp_ind))])
-        model_3d_denoised.append(clustered_cp_pcd)
-    else :
-        print('--------------------------------------------')
-        print('[ WARNING! the clustering result is empty! ]')
-        print('--------------------------------------------')
+    # print('[ Computing the clustered contact points ... ]')
+    # clustered_cp_ind = DBSCAN_pcd(candidate_cp_pts, eps=0.005, min_samples=5, max_cluster=2)
+    # if len(clustered_cp_ind) != 0: 
+    #     clustered_cp_pts = candidate_cp_pts[clustered_cp_ind]
+    #     clustered_cp_pcd = o3d.geometry.PointCloud()
+    #     clustered_cp_pcd.points = o3d.utility.Vector3dVector(clustered_cp_pts)
+    #     clustered_cp_pcd.colors = o3d.utility.Vector3dVector([[0, 0, 1] for i in range(len(clustered_cp_ind))])
+    #     model_3d_denoised.append(clustered_cp_pcd)
+    # else :
+    #     print('--------------------------------------------')
+    #     print('[ WARNING! the clustering result is empty! ]')
+    #     print('--------------------------------------------')
 
     # add 3D point cloud (mesh)
     pcd_pts = np.array(pcd.points)
@@ -179,7 +186,6 @@ def main(args):
     clustered_ind = DBSCAN_pcd(pcd_pts, eps=0.002, min_samples=10, max_cluster=1)
     clustered_pcd_pts = pcd_pts[clustered_ind]
     clustered_pcd_colors = pcd_colors[clustered_ind]
-
 
     clustered_pcd = o3d.geometry.PointCloud()
     if args.remove_lightbar:
@@ -214,7 +220,7 @@ def main(args):
     clustered_pcd.estimate_normals()
     distances = clustered_pcd.compute_nearest_neighbor_distance()
     avg_dist = np.mean(distances)
-    radious = 1.5 * avg_dist
+    radious = 0.5 * avg_dist
     
     mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(clustered_pcd, o3d.utility.DoubleVector([radious, radious * 2]))
     mesh.triangle_normals = o3d.utility.Vector3dVector([])
@@ -226,7 +232,7 @@ def main(args):
     
     
     o3d.io.write_triangle_mesh("{}/mesh.obj".format(output_dir), mesh)
-    # o3d.io.write_point_cloud("{}/mesh.ply".format(output_dir), clustered_pcd)
+    o3d.io.write_point_cloud("{}/mesh.ply".format(output_dir), clustered_pcd)
     print("{}/mesh.obj saved".format(output_dir))
 
 
