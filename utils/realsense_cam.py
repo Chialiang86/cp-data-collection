@@ -83,7 +83,7 @@ class realsense_cam:
         return serial_num
 
 
-def cam_calibration(cam, img_size=(640, 480), board_size=(8, 6), target_path='./calibration/cam/'):
+def cam_intr_calibration(cam, img_size=(640, 480), board_size=(8, 6), target_path='./calibration/cam/'):
     color_path = target_path + 'color/'
     depth_path = target_path + 'depth/'
     os.makedirs(color_path, exist_ok=True)
@@ -96,7 +96,7 @@ def cam_calibration(cam, img_size=(640, 480), board_size=(8, 6), target_path='./
         color_img, _ = cam.get_image()
         cv2.imshow('Current View', color_img)
         return_char = cv2.waitKey(1) & 0xFF
-        if return_char == 27:
+        if return_char == 27: # ESC
             break
         elif return_char == ord('p'):
             cv2.imwrite(f'{color_path}{i}.jpg', color_img)
