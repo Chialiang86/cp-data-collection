@@ -91,7 +91,7 @@ def four_tag_mappings(ld_ids, nx=8, ny=12, tsize=0.02, tspace=0.2, return_center
         return location_mappings
 
 
-def get_five_points(center, half):
+def get_five_points(center, half, **translation):
     center_x, center_y = center
     five_points = np.zeros((5, 3))
     five_points[0] = [center_x, center_y, 0]

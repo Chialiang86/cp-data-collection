@@ -1,6 +1,6 @@
 import numpy as np
 from utils.realsense_cam import realsense_cam
-import os, cv2, glob, time, joblib, json
+import os, cv2, glob, time, joblib, json, threading
 
 # for multi cam
 from utils.utils import solve_pose, print_m3d_pose
@@ -16,11 +16,11 @@ def cam_intr_calibration(cam : realsense_cam, img_size : tuple=(640, 480), board
     i = 0
     while True:
         color_img, _ = cam.get_image()
-        cv2.imshow('Current View', color_img)
-        return_char = cv2.waitKey(1) & 0xFF
+        cv2.imshow(f'Current View : {cam.serial_num}', color_img)
+        return_char = cv2.waitKey(10) & 0xFF
         if return_char == 27: # ESC
             break
-        elif return_char == ord('p'):
+        elif return_char == ord('s'):
             cv2.imwrite(f'{target_path}{i}.jpg', color_img)
             print(f'{target_path}{i}.jpg saved.')
             i += 1
@@ -52,7 +52,7 @@ def cam_intr_calibration(cam : realsense_cam, img_size : tuple=(640, 480), board
 
             # Draw and display the corners
             cv2.drawChessboardCorners(img, (corner_x, corner_y), corners, ret)
-            cv2.imshow('Current View', img)
+            cv2.imshow(f'Current View : {cam.serial_num}', img)
             _ = cv2.waitKey(500)
 
     print('Camera calibration...')
@@ -82,6 +82,9 @@ def multicam_calib(cam1, cam2, board_name='board4x6', target_path='./calibration
     os.makedirs(target_path, exist_ok=True)
 
     cam1Tcam2_seq, i = [], 1
+
+    # tagboard_dict shape : [nx * ny, 5, 3]
+    # tag_size of board4x6 : 0.04 (4cm)
     tagboard_dict, tag_size = tag_boards(board_name)
     while True:
         # get img
@@ -109,21 +112,33 @@ def multicam_calib(cam1, cam2, board_name='board4x6', target_path='./calibration
             print('Pose {} saved'.format(i))
             i += 1
         elif return_char & 0xFF == 27:  # esc
-            cam1.process_end()
-            cam2.process_end()
+            # cam1.process_end()
+            # cam2.process_end()
             cv2.destroyAllWindows()
             break
 
     optim_cam1Tcam2 = opt_poses(cam1Tcam2_seq) # use minisam
     print_m3d_pose(optim_cam1Tcam2, f'Optimal {cam1.serial_num} to {cam2.serial_num} pose')
+    
+    json_dict = {
+        'master': cam1.serial_num,
+        'slave': cam2.serial_num,
+        'extr_seq': [cam1Tcam2.get_matrix().tolist() for cam1Tcam2 in cam1Tcam2_seq],
+        'extr_opt':  optim_cam1Tcam2.get_matrix().tolist()
+    }
 
-    joblib.dump(cam1Tcam2_seq, f'{target_path}{cam1.serial_num}-{cam2.serial_num}_seq.pkl')
-    joblib.dump(optim_cam1Tcam2, f'{target_path}optim_{cam1.serial_num}-{cam2.serial_num}.pkl')
-    print(f'{target_path}{cam1.serial_num}-{cam2.serial_num}_seq.pkl saved.')
-    print(f'{target_path}optim_{cam1.serial_num}-{cam2.serial_num}.pkl saved.')
+    with open(f'{target_path}{cam1.serial_num}-{cam2.serial_num}.json', 'w') as f:
+        json.dump(json_dict, f, indent=4, sort_keys=True)
+        print(f'{target_path}{cam1.serial_num}-{cam2.serial_num}.json saved.')
+
+    # joblib.dump(cam1Tcam2_seq, f'{target_path}{cam1.serial_num}-{cam2.serial_num}_seq.pkl')
+    # joblib.dump(optim_cam1Tcam2, f'{target_path}optim_{cam1.serial_num}-{cam2.serial_num}.pkl')
+    # print(f'{target_path}{cam1.serial_num}-{cam2.serial_num}_seq.pkl saved.')
+    # print(f'{target_path}optim_{cam1.serial_num}-{cam2.serial_num}.pkl saved.')
 
 def main():
     serial_nums = realsense_cam.get_realsense_serial_num()
+    serial_nums.sort() # smallest one as master
 
     cams = []
     for serial_num in serial_nums:
@@ -134,6 +149,7 @@ def main():
     ==== please input key to continue ====
 
         i : for intrinsic calibration
+        e : for extrinsic calibration
         q : break
 
     ======================================
@@ -143,11 +159,35 @@ def main():
 
         key = str(input('> '))
         if key == 'q': 
+            for cam in cams:
+                cam.process_end()
             break
 
         if key == 'i': # intrinsic
+            # workers = []
             for i in range(len(cams)):
+                # cv2.namedWindow(f'Current View : {cam.serial_num}')
+                # workers.append(threading.Thread(target=cam_intr_calibration, args=(cams[i], (640, 480), (8, 6))))
                 cam_intr_calibration(cams[i], img_size=(640, 480), board_size=(8, 6))
+
+            # for i in range(len(workers)):
+            #     workers[i].start()
+
+            # for i in range(len(workers)):
+            #     workers[i].join()
+        
+        if key == 'e': # extrinsic
+            if len(cams) >= 2:
+                # workers = []
+                for i in range(1, len(cams)):
+                    # workers.append(threading.Thread(target=multicam_calib, args=(cams[0], cams[i + 1], 'board4x6', './calibration/multicam/')))
+                    multicam_calib(cams[0], cams[i], board_name='board4x6', target_path='./calibration/multicam/')
+
+                # for i in range(len(workers)):
+                #     workers[i].start()
+
+                # for i in range(len(workers)):
+                #     workers[i].join()
     
 if __name__=="__main__":
     main()

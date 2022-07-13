@@ -33,6 +33,14 @@ if [ $# -ge 1 ]; then
         else 
             python3 catch_contact_point.py --root 'cam_output' --in-dir '0531-1' --out-dir 'annotation'
         fi
+    
+    elif [ $function = 'recon' ]; then 
+        if [ $# -eq 2 ]; then
+            INPUT=$2
+            python3 reconstruction.py --root 'cam_output' --in-dir ${INPUT} --out-dir ${INPUT}
+        else 
+            python3 reconstruction.py --root 'cam_output' --in-dir '0531-1' --out-dir 'annotation'
+        fi
 
     elif [ $function = 'pcd' ]; then 
     

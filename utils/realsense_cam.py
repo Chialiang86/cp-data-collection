@@ -148,6 +148,7 @@ if __name__ == '__main__':
     cams = []
     for serial_num in serial_nums:
         cam = realsense_cam(serial_num=serial_num)
+        print('intrinsic : ', cam.intrinsic_at)
         cams.append(cam)
     
     if len(cams) > 0:

@@ -3,7 +3,6 @@ import argparse
 import os
 import scipy.io as sio
 import cv2
-import time
 import threading
 
 from utils.realsense_cam import realsense_cam
@@ -11,18 +10,19 @@ from utils.realsense_cam import realsense_cam
 def capture(cam, intr, mat_prefix, rgb_prefix):
 
     rgb, depth = cam.get_image()
+    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
     mat_out = {
-        'color': rgb,
+        'color': bgr,
         'depth': depth,
         'intr' : intr,
         'dscale' : 1 / cam.depth_scale
     }
 
     mat_path = f'{mat_prefix}.mat'
-    rgb_path = f'{png_prefix}.png'
+    rgb_path = f'{rgb_prefix}.png'
 
-    cv2.imwrite(rgb_path, rgb)
+    cv2.imwrite(rgb_path, bgr)
     sio.savemat(mat_path, mat_out)
     print(f'[{mat_path} , {rgb_path}] saved')
 
@@ -33,10 +33,8 @@ def main(args):
     root = args.root
     out_dir = args.out_dir
 
-    if not os.path.exists(root):
-        os.mkdir(root)
-    assert not os.path.exists(os.path.join(root, out_dir)), f'{os.path.join(root, out_dir)} exists'
-    os.mkdir(os.path.join(root, out_dir))
+    os.makedirs(root, exist_ok=True)
+    os.makedirs(os.path.join(root, out_dir), exist_ok=True)
 
     cams = []
     cam_dirs = []
@@ -46,6 +44,7 @@ def main(args):
         cams.append(cam)
 
         cam_dir = os.path.join(root, out_dir, f'{serial_num}')
+        os.makedirs(cam_dir, exist_ok=True)
         cam_dirs.append(cam_dir)
 
         intr = cam.intrinsic_mat
@@ -67,34 +66,27 @@ def main(args):
     while True:
         key = cv2.waitKey(10)
 
-        if first:
-            for i in range(len(cams)):
-                rgb, depth = cams[i].get_image()
-                rgbs[i] = rgb
-                depths[i] = depth
-                depth = cv2.applyColorMap(cv2.convertScaleAbs(depth, alpha=0.03), cv2.COLORMAP_JET)
-                viewer_frams = np.hstack((rgb, depth))
-                cv2.imshow(f'image_{i} : serial_num = {serial_nums[i]}', viewer_frams)
+        for i in range(len(cams)):
+            rgb, depth = cams[i].get_image()
+            rgbs[i] = rgb
+            depths[i] = depth
+            depth = cv2.applyColorMap(cv2.convertScaleAbs(depth, alpha=0.03), cv2.COLORMAP_JET)
+            viewer_frams = np.hstack((rgb, depth))
+            cv2.imshow(f'image_{i} : serial_num = {serial_nums[i]}', viewer_frams)
 
         if key == ord('s'):
-            first = False
 
             # create directory if needed 
             for cam_dir in cam_dirs:
-                if not os.path.exists(cam_dir):
-                    os.mkdir(cam_dir)
+                if not os.path.exists(os.path.join(cam_dir, 'rgb_static')):
                     os.mkdir(os.path.join(cam_dir, 'rgb_static'))
+                if not os.path.exists(os.path.join(cam_dir, 'mat_static')):
                     os.mkdir(os.path.join(cam_dir, 'mat_static'))
-                else:
-                    if not os.path.exists(os.path.join(cam_dir, 'rgb_static')):
-                        os.mkdir(os.path.join(cam_dir, 'rgb_static'))
-                    if not os.path.exists(os.path.join(cam_dir, 'mat_static')):
-                        os.mkdir(os.path.join(cam_dir, 'mat_static'))
 
             worker = []
             for i in range(len(cams)):
-                mat_prefix = cam_dirs[i] + 'mat_static' + str(idx)
-                rgb_prefix = cam_dirs[i] + 'rgb_static' + str(idx)
+                mat_prefix = cam_dirs[i] + '/mat_static/' + str(idx)
+                rgb_prefix = cam_dirs[i] + '/rgb_static/' + str(idx)
                 worker.append(threading.Thread(target=capture, args=(cams[i], cam_intrs[i], mat_prefix, rgb_prefix)))
             
             for i in range(len(worker)):
@@ -106,19 +98,13 @@ def main(args):
             idx += 1
 
         if key == ord('a'):
-            first = False
 
             # create directory if needed 
             for cam_dir in cam_dirs:
-                if not os.path.exists(cam_dir):
-                    os.mkdir(cam_dir)
+                if not os.path.exists(os.path.join(cam_dir, 'rgb_dynamic')):
                     os.mkdir(os.path.join(cam_dir, 'rgb_dynamic'))
+                if not os.path.exists(os.path.join(cam_dir, 'mat_dynamic')):
                     os.mkdir(os.path.join(cam_dir, 'mat_dynamic'))
-                else:
-                    if not os.path.exists(os.path.join(cam_dir, 'rgb_dynamic')):
-                        os.mkdir(os.path.join(cam_dir, 'rgb_dynamic'))
-                    if not os.path.exists(os.path.join(cam_dir, 'mat_dynamic')):
-                        os.mkdir(os.path.join(cam_dir, 'mat_dynamic'))
 
             for index in range(100):
                 _ = cv2.waitKey(100)
