@@ -136,6 +136,52 @@ def multicam_calib(cam1, cam2, board_name='board4x6', target_path='./calibration
     # print(f'{target_path}{cam1.serial_num}-{cam2.serial_num}_seq.pkl saved.')
     # print(f'{target_path}optim_{cam1.serial_num}-{cam2.serial_num}.pkl saved.')
 
+
+def multicam_calib(cam, board_name='board4x6', target_path='./calibration/camTtag/'):
+    os.makedirs(target_path, exist_ok=True)
+
+    camTtag_seq, i = [], 1
+
+    # tagboard_dict shape : [nx * ny, 5, 3]
+    # tag_size of board4x6 : 0.04 (4cm)
+    tagboard_dict, tag_size = tag_boards(board_name)
+    while True:
+        # get img
+        color_img, _ = cam.get_image()
+
+        # detect tags
+        detect_img, tag_IDs, tag_img_pts = detect_tags(color_img, cam.intrinsic_at, tag_size)
+
+        return_char = cv2.waitKey(50)
+        if return_char & 0xFF == ord('s') and len(tag_IDs) > 10 :
+            tag_img_pts = np.array(tag_img_pts).reshape(-1, 2)
+            tag_obj_pts = get_tagboard_obj_pts(tagboard_dict, tag_IDs)
+
+            m3d_transform = solve_pose(tag_obj_pts, tag_img_pts, cam.intrinsic_mat)
+            camTtag_seq.append(m3d_transform)
+            print('Pose {} saved'.format(i))
+            i += 1
+        elif return_char & 0xFF == 27:  # esc
+            cv2.destroyAllWindows()
+            break
+
+    optim_camTtag = opt_poses(camTtag_seq) # use minisam
+    
+    json_dict = {
+        'master': cam.serial_num,
+        'extr_seq': [cam1Tcam2.get_matrix().tolist() for cam1Tcam2 in camTtag_seq],
+        'extr_opt':  optim_camTtag.get_matrix().tolist()
+    }
+
+    with open(f'{target_path}{cam.serial_num}-tag.json', 'w') as f:
+        json.dump(json_dict, f, indent=4, sort_keys=True)
+        print(f'{target_path}{cam.serial_num}-tag.json saved.')
+
+    # joblib.dump(cam1Tcam2_seq, f'{target_path}{cam1.serial_num}-{cam2.serial_num}_seq.pkl')
+    # joblib.dump(optim_cam1Tcam2, f'{target_path}optim_{cam1.serial_num}-{cam2.serial_num}.pkl')
+    # print(f'{target_path}{cam1.serial_num}-{cam2.serial_num}_seq.pkl saved.')
+    # print(f'{target_path}optim_{cam1.serial_num}-{cam2.serial_num}.pkl saved.')
+
 def main():
     serial_nums = realsense_cam.get_realsense_serial_num()
     serial_nums.sort() # smallest one as master
