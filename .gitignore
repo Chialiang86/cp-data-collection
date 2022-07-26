@@ -1,4 +1,6 @@
 img/*
-utils/__pycache__
+*/__pycache__
+__pycache__
+*.zip
 .vscode
 cam_output/

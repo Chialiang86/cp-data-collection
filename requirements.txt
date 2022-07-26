@@ -1,5 +1,4 @@
 joblib
-dt_apriltags
 math3d
 matplotlib
 numpy
@@ -11,4 +10,3 @@ PyYAML
 scikit_learn
 scipy
 tqdm
-jsonlib

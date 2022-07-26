@@ -7,6 +7,45 @@ import open3d as o3d
 import json
 
 
+
+def create_rgbd(rgb, depth, intr, extr, dscale):
+    assert rgb.shape[:2] == depth.shape
+    (h, w) = depth.shape
+    fx, fy, cx, cy = intr[0, 0], intr[1, 1], intr[0, 2], intr[1, 2]
+
+    ix, iy =  np.meshgrid(range(w), range(h))
+
+    x_ratio = (ix.ravel() - cx) / fx
+    y_ratio = (iy.ravel() - cy) / fy
+
+    z = depth.ravel() / dscale
+    x = z * x_ratio
+    y = z * y_ratio
+
+    points = np.vstack((x, y, z)).T
+    colors = np.reshape(rgb,(depth.shape[0] * depth.shape[1], 3))
+    colors = np.array([colors[:,2], colors[:,1], colors[:,0]]).T / 255.
+
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(np.array(points))
+    pcd.colors = o3d.utility.Vector3dVector(np.array(colors))
+    pcd.transform(extr)
+
+    return pcd
+
+def scene_reconstruction(rgbds):
+
+    pcds = []
+    for rgbd_info in rgbds:
+
+        pcd = create_rgbd(rgbd_info['color'], rgbd_info['depth'], rgbd_info['intr'], rgbd_info['extr'], rgbd_info['dscale'])
+        pcds.append(pcd)
+
+    coordinate = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
+    pcds.append(coordinate)
+    o3d.visualization.draw_geometries(pcds)
+
+
 def tsdf_fusion(rgbds, voxel_length=0.0015, sdf_trunc=0.003):
     
     tsdf_volume = o3d.pipelines.integration.ScalableTSDFVolume(
@@ -87,12 +126,9 @@ def main(args):
 
         rgbds.append(rgbd_info)
 
-    tsdf_fusion(rgbds)
-        
-    
-        
+    scene_reconstruction(rgbds)
 
-
+    # tsdf_fusion(rgbds)
 
 
 if __name__=="__main__":

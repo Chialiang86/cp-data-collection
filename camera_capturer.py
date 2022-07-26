@@ -10,10 +10,9 @@ from utils.realsense_cam import realsense_cam
 def capture(cam, intr, mat_prefix, rgb_prefix):
 
     rgb, depth = cam.get_image()
-    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
     mat_out = {
-        'color': bgr,
+        'color': rgb,
         'depth': depth,
         'intr' : intr,
         'dscale' : 1 / cam.depth_scale
@@ -22,7 +21,7 @@ def capture(cam, intr, mat_prefix, rgb_prefix):
     mat_path = f'{mat_prefix}.mat'
     rgb_path = f'{rgb_prefix}.png'
 
-    cv2.imwrite(rgb_path, bgr)
+    cv2.imwrite(rgb_path, rgb)
     sio.savemat(mat_path, mat_out)
     print(f'[{mat_path} , {rgb_path}] saved')
 
@@ -110,8 +109,8 @@ def main(args):
                 _ = cv2.waitKey(100)
                 worker = []
                 for i in range(len(cams)):
-                    mat_prefix = cam_dirs[i] + 'mat_dynamic' + str(index)
-                    rgb_prefix = cam_dirs[i] + 'rgb_dynamic' + str(index)
+                    mat_prefix = cam_dirs[i] + '/mat_dynamic/' + str(index)
+                    rgb_prefix = cam_dirs[i] + '/rgb_dynamic/' + str(index)
                     worker.append(threading.Thread(target=capture, args=(cams[i], cam_intrs[i], mat_prefix, rgb_prefix)))
                 
                 for i in range(len(worker)):
