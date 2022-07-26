@@ -1,4 +1,6 @@
 import numpy as np
+import math3d as m3d
+import transforms3d as tf3d
 from utils.realsense_cam import realsense_cam
 import os, cv2, glob, time, joblib, json, threading
 
@@ -6,6 +8,12 @@ import os, cv2, glob, time, joblib, json, threading
 from utils.utils import solve_pose, print_m3d_pose
 from utils.minisam_optim import opt_poses
 from utils.tag_detection import tag_boards, detect_tags, get_tagboard_obj_pts
+
+from handeye_calib.dual_quaternion import DualQuaternion as dq
+from handeye_calib.dual_quaternion_hand_eye_calibration import HandEyeConfig, \
+    compute_hand_eye_calibration_RANSAC, compute_hand_eye_calibration_BASELINE
+import handeye_calib.transformations as trf
+from ur10_robot import UR10Robot
 
 def cam_intr_calibration(cam : realsense_cam, img_size : tuple=(640, 480), board_size : tuple=(8, 6), target_root : str='./calibration'):
     target_path = f'{target_root}/{cam.serial_num}/'
@@ -137,50 +145,111 @@ def multicam_calib(cam1, cam2, board_name='board4x6', target_path='./calibration
     # print(f'{target_path}optim_{cam1.serial_num}-{cam2.serial_num}.pkl saved.')
 
 
-def multicam_calib(cam, board_name='board4x6', target_path='./calibration/camTtag/'):
+# Pose form: x, y, z, q_x, q_y, q_z, q_w
+def solve_relative_transformation(base_c1, base_c2):
+    # Usage 1. base_T_hand,world_T_eye (eye on hand) ->Return: handTeye[baseline/RANSAC]
+    # Usage 2. world_T_cam1,world_T_cam2 -> cam1Tcam2 ->Return: cam1Tcam2[baseline/RANSAC]
+    conf = HandEyeConfig()
+    conf.min_num_inliers = len(base_c1) // 1.2
+    conf.prefilter_poses_enabled = False
+    conf.enable_exhaustive_search = True
+    pose_base_hand = [dq.from_pose_vector(p) for p in base_c1]  # Hand in robot-base frame
+    pose_world_eye = [dq.from_pose_vector(p) for p in base_c2]  # Eye in world frame
+    result_baseline = compute_hand_eye_calibration_BASELINE(pose_base_hand, pose_world_eye, conf)
+    # result_RANSAC = compute_hand_eye_calibration_RANSAC(pose_base_hand, pose_world_eye, conf)
+    quat_bl = result_baseline[1].to_pose()
+    # quat_rs = result_RANSAC[1].to_pose()
+    # x, y, z, q_x, q_y, q_z, q_w
+    c1Tc2_bl = trf.quaternion_matrix([quat_bl[6], quat_bl[3], quat_bl[4], quat_bl[5]])  # w,x,y,z
+    c1Tc2_bl[0:3, 3] = quat_bl[0:3]
+    # c1Tc2_rs = trf.quaternion_matrix([quat_rs[6], quat_rs[3], quat_rs[4], quat_rs[5]])  # w,x,y,z
+    # c1Tc2_rs[0:3, 3] = quat_rs[0:3]
+    return c1Tc2_bl  # , c1Tc2_rs
+
+
+def handeye_calib_ur10(cam, board_name='board4x6',
+                       target_path='./calibration/handeye_calib_ur10/',
+                       handTeye_name='handTeye', baseThand_name='baseThand', worldTeye_name='worldTeye'):
+    # baseThand: ur10Ttcp
+    # worldTeye: tagboardTcam2
+    # handTeye: tcpTcam2
+
+    # baseThand: ur10Ttcp
+    # worldTeye: cam3Tgrip
+    # handTeye: tcpTgrip
+
     os.makedirs(target_path, exist_ok=True)
 
-    camTtag_seq, i = [], 1
-
-    # tagboard_dict shape : [nx * ny, 5, 3]
-    # tag_size of board4x6 : 0.04 (4cm)
+    robot = UR10Robot()
+    origin_ur10Ttcp_seq = []
+    baseThand_seq, worldTeye_seq = [], []
+    i = len(baseThand_seq) + 1
     tagboard_dict, tag_size = tag_boards(board_name)
-    while True:
-        # get img
-        color_img, _ = cam.get_image()
 
-        # detect tags
+    while True:
+        color_img, _ = cam.get_image()
         detect_img, tag_IDs, tag_img_pts = detect_tags(color_img, cam.intrinsic_at, tag_size)
+        tag_obj_pts = get_tagboard_obj_pts(tagboard_dict, tag_IDs)
+        cv2.imshow('handeye_calib_ur10', detect_img)
 
         return_char = cv2.waitKey(50)
-        if return_char & 0xFF == ord('s') and len(tag_IDs) > 10 :
-            tag_img_pts = np.array(tag_img_pts).reshape(-1, 2)
-            tag_obj_pts = get_tagboard_obj_pts(tagboard_dict, tag_IDs)
+        if return_char & 0xFF == ord('s') and len(tag_IDs) > 10:
+            ur10Ttcp_i = robot.get_pose()
+            origin_ur10Ttcp_seq.append(ur10Ttcp_i)
+            quad_bTh = tf3d.quaternions.mat2quat(ur10Ttcp_i.orient.array)  # qw,qx,qy,qz
+            quad_bTh = quad_bTh[[1, 2, 3, 0]].tolist()  # qx,qy,qz,qw
+            quad_bTh = ur10Ttcp_i.pos.array.tolist() + quad_bTh
+            baseThand_seq.append(np.array(quad_bTh))
 
-            m3d_transform = solve_pose(tag_obj_pts, tag_img_pts, cam.intrinsic_mat)
-            camTtag_seq.append(m3d_transform)
+            worldTeye_i = solve_pose(tag_obj_pts, np.array(tag_img_pts).reshape(-1, 2), cam.intrinsic_mat).inverse
+            quad_wTcam = tf3d.quaternions.mat2quat(worldTeye_i.orient.array)
+            quad_wTcam = quad_wTcam[[1, 2, 3, 0]].tolist()  # qx,qy,qz,qw
+            quad_wTcam = worldTeye_i.pos.array.tolist() + quad_wTcam
+            worldTeye_seq.append(np.array(quad_wTcam))
+
             print('Pose {} saved'.format(i))
+            joblib.dump(origin_ur10Ttcp_seq, f'{target_path}origin_ur10Ttcp_seq.pkl')
+            joblib.dump(baseThand_seq, f'{target_path}{baseThand_name}_seq.pkl')
+            joblib.dump(worldTeye_seq, f'{target_path}{worldTeye_name}_seq.pkl')
+            print(f'{target_path}origin_ur10Ttcp_seq.pkl saved.')
+            print(f'{target_path}{baseThand_name}_seq.pkl saved.')
+            print(f'{target_path}{worldTeye_name}_seq.pkl saved.')
             i += 1
         elif return_char & 0xFF == 27:  # esc
+            cam.process_end()
+            robot.close()
             cv2.destroyAllWindows()
             break
 
-    optim_camTtag = opt_poses(camTtag_seq) # use minisam
-    
-    json_dict = {
-        'master': cam.serial_num,
-        'extr_seq': [cam1Tcam2.get_matrix().tolist() for cam1Tcam2 in camTtag_seq],
-        'extr_opt':  optim_camTtag.get_matrix().tolist()
-    }
+    handTeye = solve_relative_transformation(np.vstack(baseThand_seq), np.vstack(worldTeye_seq))
+    optim_handTeye = m3d.Transform(handTeye)
+    print_m3d_pose(optim_handTeye, f'Optimal {handTeye_name} pose')
 
-    with open(f'{target_path}{cam.serial_num}-tag.json', 'w') as f:
-        json.dump(json_dict, f, indent=4, sort_keys=True)
-        print(f'{target_path}{cam.serial_num}-tag.json saved.')
+    # dump pose (for future use)
+    joblib.dump(optim_handTeye, f'{target_path}optim_{handTeye_name}.pkl')
+    joblib.dump(baseThand_seq, f'{target_path}{baseThand_name}_seq.pkl')
+    joblib.dump(worldTeye_seq, f'{target_path}{worldTeye_name}_seq.pkl')
+    print(f'{target_path}optim_{handTeye_name}.pkl saved.')
+    print(f'{target_path}{baseThand_name}_seq.pkl saved.')
+    print(f'{target_path}{worldTeye_name}_seq.pkl saved.')
 
-    # joblib.dump(cam1Tcam2_seq, f'{target_path}{cam1.serial_num}-{cam2.serial_num}_seq.pkl')
-    # joblib.dump(optim_cam1Tcam2, f'{target_path}optim_{cam1.serial_num}-{cam2.serial_num}.pkl')
-    # print(f'{target_path}{cam1.serial_num}-{cam2.serial_num}_seq.pkl saved.')
-    # print(f'{target_path}optim_{cam1.serial_num}-{cam2.serial_num}.pkl saved.')
+
+def solve_transform(target_path='./calibration/handeye_calib_ur10/',
+                    handTeye_name='handTeye', baseThand_name='baseThand', worldTeye_name='worldTeye'):
+    baseThand_seq = joblib.load(f'{target_path}{baseThand_name}_seq.pkl')
+    worldTeye_seq = joblib.load(f'{target_path}{worldTeye_name}_seq.pkl')
+
+    handTeye = solve_relative_transformation(np.vstack(baseThand_seq), np.vstack(worldTeye_seq))
+    optim_handTeye = m3d.Transform(handTeye)
+    print_m3d_pose(optim_handTeye, f'Optimal {handTeye_name} pose')
+
+    # dump pose (for future use)
+    joblib.dump(optim_handTeye, f'{target_path}optim_{handTeye_name}.pkl')
+    joblib.dump(baseThand_seq, f'{target_path}{baseThand_name}_seq.pkl')
+    joblib.dump(worldTeye_seq, f'{target_path}{worldTeye_name}_seq.pkl')
+    print(f'{target_path}optim_{handTeye_name}.pkl saved.')
+    print(f'{target_path}{baseThand_name}_seq.pkl saved.')
+    print(f'{target_path}{worldTeye_name}_seq.pkl saved.')
 
 def main():
     serial_nums = realsense_cam.get_realsense_serial_num()
