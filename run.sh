@@ -34,12 +34,29 @@ if [ $# -ge 1 ]; then
             python3 catch_contact_point.py --root 'cam_output' --in-dir '0531-1' --out-dir 'annotation'
         fi
     
-    elif [ $function = 'recon' ]; then 
+    elif [ $function = 'rgbd2mat' ]; then 
         if [ $# -eq 2 ]; then
             INPUT=$2
-            python3 reconstruction.py --root 'cam_output' --in-dir ${INPUT} --out-dir ${INPUT}
+            python3 rgbd_to_mat.py --input-root 'hcis-data' --input-dir ${INPUT} --output-root 'cam_output'
         else 
-            python3 reconstruction.py --root 'cam_output' --in-dir '0531-1' --out-dir 'annotation'
+            python3 rgbd_to_mat.py --input-root 'hcis-data' --input-dir '20220727_172155_scissor' --output-root 'cam_output'
+        fi
+
+    elif [ $function = 'srecon' ]; then 
+        if [ $# -eq 2 ]; then
+            INPUT=$2
+            python3 scene_reconstruct.py --root 'cam_output' --in-dir ${INPUT} --out-dir ${INPUT}
+        else 
+            python3 scene_reconstruct.py --root 'cam_output' --in-dir '0531-1' --out-dir 'annotation'
+        fi
+    
+    elif [ $function = 'somatch' ]; then 
+        if [ $# -eq 3 ]; then
+            SCENE_PCD="3d_scene/$2/pcd.ply"
+            SCENE_JSON="3d_scene/$2/pcd.json"
+            OBJ_PCD="3d_model/$3/$3_pcd.ply"
+            OBJ_JSON="3d_model/$3/$3_pcd.json"
+            python3 scene_obj_matching.py --scene_pcd $SCENE_PCD --scene_json $SCENE_JSON --obj_pcd $OBJ_PCD --obj_json $OBJ_JSON
         fi
 
     elif [ $function = 'pcd' ]; then 

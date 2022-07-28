@@ -6,7 +6,7 @@ import os, cv2, glob, time, joblib, json, threading
 
 # for multi cam
 from utils.utils import solve_pose, print_m3d_pose
-# from utils.minisam_optim import opt_poses
+from utils.minisam_optim import opt_poses
 from utils.tag_detection import tag_boards, detect_tags, get_tagboard_obj_pts
 
 from handeye_calib.dual_quaternion import DualQuaternion as dq
@@ -86,6 +86,71 @@ def cam_intr_calibration(cam : realsense_cam, img_size : tuple=(640, 480), board
 
     cv2.destroyAllWindows()
 
+def multicam_calib_from_png(src_dir, board_name='board4x6', target_path='./calibration/multicam/'):
+    if not os.path.exists(target_path):
+        os.mkdir(target_path)
+    
+    cam1_serialnum = src_dir.split('/')[-1].split('-')[0]
+    cam2_serialnum = src_dir.split('/')[-1].split('-')[1]
+
+    # get intrinsic
+    cam1_intr_f = f'{src_dir}/{cam1_serialnum}.npy'
+    cam1_intr = np.load(cam1_intr_f) # (fx, fy, ox, oy)
+    cam1_intr_at = (cam1_intr[0, 0], cam1_intr[1, 1], cam1_intr[0, 2], cam1_intr[1, 2])
+    cam2_intr_f = f'{src_dir}/{cam2_serialnum}.npy'
+    cam2_intr = np.load(cam2_intr_f) # (fx, fy, ox, oy)
+    cam2_intr_at = (cam2_intr[0, 0], cam2_intr[1, 1], cam2_intr[0, 2], cam2_intr[1, 2])
+    
+    # get rgb images
+    cam1_imgs = glob.glob(f'{src_dir}/{cam1_serialnum}*.png')
+    cam2_imgs = glob.glob(f'{src_dir}/{cam2_serialnum}*.png')
+    assert len(cam1_imgs) == len(cam2_imgs), f'different file numbers in {src_dir}/{cam1_serialnum} and {src_dir}/{cam2_serialnum}'
+
+    cam1_imgs.sort(key=lambda s: int(s.split('-')[-1].split('.')[0])) # ex : xxx/141722071222-0.png
+    cam2_imgs.sort(key=lambda s: int(s.split('-')[-1].split('.')[0])) # ex : xxx/141722071222-0.png
+
+    cam1Tcam2_seq = []
+    tagboard_dict, tag_size = tag_boards(board_name)
+    for i in range(len(cam1_imgs)):
+
+        color_img1 = cv2.imread(cam1_imgs[i])
+        color_img2 = cv2.imread(cam2_imgs[i])
+        
+        # detect tags
+        detect_img1, tag_IDs1, tag_img_pts1 = detect_tags(color_img1, cam1_intr_at, tag_size)
+        detect_img2, tag_IDs2, tag_img_pts2 = detect_tags(color_img2, cam2_intr_at, tag_size)
+        detect_imgs = np.hstack([detect_img1, detect_img2])
+        cv2.imshow('multicam_calib', detect_imgs)
+        cv2.waitKey(50)
+
+        if len(tag_IDs1) > 10 and len(tag_IDs2) > 10:
+            tag_img_pts1 = np.array(tag_img_pts1).reshape(-1, 2)
+            tag_img_pts2 = np.array(tag_img_pts2).reshape(-1, 2)
+            tag_obj_pts1 = get_tagboard_obj_pts(tagboard_dict, tag_IDs1)
+            tag_obj_pts2 = get_tagboard_obj_pts(tagboard_dict, tag_IDs2)
+
+            m3d_transform1 = solve_pose(tag_obj_pts1, tag_img_pts1, cam1_intr)
+            m3d_transform2 = solve_pose(tag_obj_pts2, tag_img_pts2, cam2_intr)
+            cam1Tcam2 = m3d_transform1 * m3d_transform2.inverse
+            print_m3d_pose(cam1Tcam2)
+            cam1Tcam2_seq.append(cam1Tcam2)
+    cv2.destroyAllWindows()
+    
+    optim_cam1Tcam2 = opt_poses(cam1Tcam2_seq) # use minisam
+    print_m3d_pose(optim_cam1Tcam2, f'Optimal {cam1_serialnum} to {cam2_serialnum} pose')
+    
+    json_dict = {
+        'master': cam1_serialnum,
+        'slave': cam2_serialnum,
+        # 'extr_seq': [cam1Tcam2.get_matrix().tolist() for cam1Tcam2 in cam1Tcam2_seq],
+        'extr_opt':  optim_cam1Tcam2.get_matrix().tolist()
+    }
+
+    with open(f'{target_path}{cam1_serialnum}-{cam2_serialnum}.json', 'w') as f:
+        json.dump(json_dict, f, indent=4, sort_keys=True)
+        print(f'{target_path}{cam1_serialnum}-{cam2_serialnum}.json saved.')
+
+
 def multicam_calib(cam1, cam2, board_name='board4x6', target_path='./calibration/multicam/', save_rgb=True):
     os.makedirs(target_path, exist_ok=True)
     if save_rgb:
@@ -125,7 +190,6 @@ def multicam_calib(cam1, cam2, board_name='board4x6', target_path='./calibration
             m3d_transform2 = solve_pose(tag_obj_pts2, tag_img_pts2, cam2.intrinsic_mat)
             cam1Tcam2 = m3d_transform1 * m3d_transform2.inverse
             print_m3d_pose(cam1Tcam2)
-            optim_cam1Tcam2 += cam1Tcam2.get_matrix()
             cam1Tcam2_seq.append(cam1Tcam2)
             cnt += 1
             print('Pose {} saved'.format(cnt))
@@ -135,9 +199,8 @@ def multicam_calib(cam1, cam2, board_name='board4x6', target_path='./calibration
             cv2.destroyAllWindows()
             break
     
-    optim_cam1Tcam2 /= cnt
-    # optim_cam1Tcam2 = opt_poses(cam1Tcam2_seq) # use minisam
-    # print_m3d_pose(optim_cam1Tcam2, f'Optimal {cam1.serial_num} to {cam2.serial_num} pose')
+    optim_cam1Tcam2 = opt_poses(cam1Tcam2_seq) # use minisam
+    print_m3d_pose(optim_cam1Tcam2, f'Optimal {cam1.serial_num} to {cam2.serial_num} pose')
     
     json_dict = {
         'master': cam1.serial_num,
@@ -178,71 +241,71 @@ def solve_relative_transformation(base_c1, base_c2):
     return c1Tc2_bl  # , c1Tc2_rs
 
 
-def handeye_calib_ur10(cam, board_name='board4x6',
-                       target_path='./calibration/handeye_calib_ur10/',
-                       handTeye_name='handTeye', baseThand_name='baseThand', worldTeye_name='worldTeye'):
-    # baseThand: ur10Ttcp
-    # worldTeye: tagboardTcam2
-    # handTeye: tcpTcam2
+# def handeye_calib_ur10(cam, board_name='board4x6',
+#                        target_path='./calibration/handeye_calib_ur10/',
+#                        handTeye_name='handTeye', baseThand_name='baseThand', worldTeye_name='worldTeye'):
+#     # baseThand: ur10Ttcp
+#     # worldTeye: tagboardTcam2
+#     # handTeye: tcpTcam2
 
-    # baseThand: ur10Ttcp
-    # worldTeye: cam3Tgrip
-    # handTeye: tcpTgrip
+#     # baseThand: ur10Ttcp
+#     # worldTeye: cam3Tgrip
+#     # handTeye: tcpTgrip
 
-    os.makedirs(target_path, exist_ok=True)
+#     os.makedirs(target_path, exist_ok=True)
 
-    robot = UR10Robot()
-    origin_ur10Ttcp_seq = []
-    baseThand_seq, worldTeye_seq = [], []
-    i = len(baseThand_seq) + 1
-    tagboard_dict, tag_size = tag_boards(board_name)
+#     robot = UR10Robot()
+#     origin_ur10Ttcp_seq = []
+#     baseThand_seq, worldTeye_seq = [], []
+#     i = len(baseThand_seq) + 1
+#     tagboard_dict, tag_size = tag_boards(board_name)
 
-    while True:
-        color_img, _ = cam.get_image()
-        detect_img, tag_IDs, tag_img_pts = detect_tags(color_img, cam.intrinsic_at, tag_size)
-        tag_obj_pts = get_tagboard_obj_pts(tagboard_dict, tag_IDs)
-        cv2.imshow('handeye_calib_ur10', detect_img)
+#     while True:
+#         color_img, _ = cam.get_image()
+#         detect_img, tag_IDs, tag_img_pts = detect_tags(color_img, cam.intrinsic_at, tag_size)
+#         tag_obj_pts = get_tagboard_obj_pts(tagboard_dict, tag_IDs)
+#         cv2.imshow('handeye_calib_ur10', detect_img)
 
-        return_char = cv2.waitKey(50)
-        if return_char & 0xFF == ord('s') and len(tag_IDs) > 10:
-            ur10Ttcp_i = robot.get_pose()
-            origin_ur10Ttcp_seq.append(ur10Ttcp_i)
-            quad_bTh = tf3d.quaternions.mat2quat(ur10Ttcp_i.orient.array)  # qw,qx,qy,qz
-            quad_bTh = quad_bTh[[1, 2, 3, 0]].tolist()  # qx,qy,qz,qw
-            quad_bTh = ur10Ttcp_i.pos.array.tolist() + quad_bTh
-            baseThand_seq.append(np.array(quad_bTh))
+#         return_char = cv2.waitKey(50)
+#         if return_char & 0xFF == ord('s') and len(tag_IDs) > 10:
+#             ur10Ttcp_i = robot.get_pose()
+#             origin_ur10Ttcp_seq.append(ur10Ttcp_i)
+#             quad_bTh = tf3d.quaternions.mat2quat(ur10Ttcp_i.orient.array)  # qw,qx,qy,qz
+#             quad_bTh = quad_bTh[[1, 2, 3, 0]].tolist()  # qx,qy,qz,qw
+#             quad_bTh = ur10Ttcp_i.pos.array.tolist() + quad_bTh
+#             baseThand_seq.append(np.array(quad_bTh))
 
-            worldTeye_i = solve_pose(tag_obj_pts, np.array(tag_img_pts).reshape(-1, 2), cam.intrinsic_mat).inverse
-            quad_wTcam = tf3d.quaternions.mat2quat(worldTeye_i.orient.array)
-            quad_wTcam = quad_wTcam[[1, 2, 3, 0]].tolist()  # qx,qy,qz,qw
-            quad_wTcam = worldTeye_i.pos.array.tolist() + quad_wTcam
-            worldTeye_seq.append(np.array(quad_wTcam))
+#             worldTeye_i = solve_pose(tag_obj_pts, np.array(tag_img_pts).reshape(-1, 2), cam.intrinsic_mat).inverse
+#             quad_wTcam = tf3d.quaternions.mat2quat(worldTeye_i.orient.array)
+#             quad_wTcam = quad_wTcam[[1, 2, 3, 0]].tolist()  # qx,qy,qz,qw
+#             quad_wTcam = worldTeye_i.pos.array.tolist() + quad_wTcam
+#             worldTeye_seq.append(np.array(quad_wTcam))
 
-            print('Pose {} saved'.format(i))
-            joblib.dump(origin_ur10Ttcp_seq, f'{target_path}origin_ur10Ttcp_seq.pkl')
-            joblib.dump(baseThand_seq, f'{target_path}{baseThand_name}_seq.pkl')
-            joblib.dump(worldTeye_seq, f'{target_path}{worldTeye_name}_seq.pkl')
-            print(f'{target_path}origin_ur10Ttcp_seq.pkl saved.')
-            print(f'{target_path}{baseThand_name}_seq.pkl saved.')
-            print(f'{target_path}{worldTeye_name}_seq.pkl saved.')
-            i += 1
-        elif return_char & 0xFF == 27:  # esc
-            cam.process_end()
-            robot.close()
-            cv2.destroyAllWindows()
-            break
+#             print('Pose {} saved'.format(i))
+#             joblib.dump(origin_ur10Ttcp_seq, f'{target_path}origin_ur10Ttcp_seq.pkl')
+#             joblib.dump(baseThand_seq, f'{target_path}{baseThand_name}_seq.pkl')
+#             joblib.dump(worldTeye_seq, f'{target_path}{worldTeye_name}_seq.pkl')
+#             print(f'{target_path}origin_ur10Ttcp_seq.pkl saved.')
+#             print(f'{target_path}{baseThand_name}_seq.pkl saved.')
+#             print(f'{target_path}{worldTeye_name}_seq.pkl saved.')
+#             i += 1
+#         elif return_char & 0xFF == 27:  # esc
+#             cam.process_end()
+#             robot.close()
+#             cv2.destroyAllWindows()
+#             break
 
-    handTeye = solve_relative_transformation(np.vstack(baseThand_seq), np.vstack(worldTeye_seq))
-    optim_handTeye = m3d.Transform(handTeye)
-    print_m3d_pose(optim_handTeye, f'Optimal {handTeye_name} pose')
+#     handTeye = solve_relative_transformation(np.vstack(baseThand_seq), np.vstack(worldTeye_seq))
+#     optim_handTeye = m3d.Transform(handTeye)
+#     print_m3d_pose(optim_handTeye, f'Optimal {handTeye_name} pose')
 
-    # dump pose (for future use)
-    joblib.dump(optim_handTeye, f'{target_path}optim_{handTeye_name}.pkl')
-    joblib.dump(baseThand_seq, f'{target_path}{baseThand_name}_seq.pkl')
-    joblib.dump(worldTeye_seq, f'{target_path}{worldTeye_name}_seq.pkl')
-    print(f'{target_path}optim_{handTeye_name}.pkl saved.')
-    print(f'{target_path}{baseThand_name}_seq.pkl saved.')
-    print(f'{target_path}{worldTeye_name}_seq.pkl saved.')
+#     # dump pose (for future use)
+#     joblib.dump(optim_handTeye, f'{target_path}optim_{handTeye_name}.pkl')
+#     joblib.dump(baseThand_seq, f'{target_path}{baseThand_name}_seq.pkl')
+#     joblib.dump(worldTeye_seq, f'{target_path}{worldTeye_name}_seq.pkl')
+#     print(f'{target_path}optim_{handTeye_name}.pkl saved.')
+#     print(f'{target_path}{baseThand_name}_seq.pkl saved.')
+#     print(f'{target_path}{worldTeye_name}_seq.pkl saved.')
 
 
 def solve_transform(target_path='./calibration/handeye_calib_ur10/',
@@ -275,7 +338,8 @@ def main():
     ==== please input key to continue ====
 
         i : for intrinsic calibration
-        e : for extrinsic calibration
+        e : for extrinsic calibration from scratch
+        es : for extrinsic calibration from saved rgb
         q : break
 
     ======================================
@@ -295,12 +359,6 @@ def main():
                 # cv2.namedWindow(f'Current View : {cam.serial_num}')
                 # workers.append(threading.Thread(target=cam_intr_calibration, args=(cams[i], (640, 480), (8, 6))))
                 cam_intr_calibration(cams[i], img_size=(640, 480), board_size=(8, 6))
-
-            # for i in range(len(workers)):
-            #     workers[i].start()
-
-            # for i in range(len(workers)):
-            #     workers[i].join()
         
         if key == 'e': # extrinsic
             if len(cams) >= 2:
@@ -309,11 +367,16 @@ def main():
                     # workers.append(threading.Thread(target=multicam_calib, args=(cams[0], cams[i + 1], 'board4x6', './calibration/multicam/')))
                     multicam_calib(cams[0], cams[i], board_name='board4x6', target_path='./calibration/multicam/')
 
-                # for i in range(len(workers)):
-                #     workers[i].start()
+        if key == 'es': # extrinsic
 
-                # for i in range(len(workers)):
-                #     workers[i].join()
+            root = 'calibration/multicam'
+            dirs = os.listdir(root)
+
+            for dir in dirs:
+                src_dir = os.path.join(root, dir)
+                if os.path.isdir(src_dir):
+                    src_dir = os.path.join(root, dir)
+                    multicam_calib_from_png(src_dir, board_name='board4x6')
     
 if __name__=="__main__":
     main()

@@ -1,6 +1,11 @@
 img/*
+3d_scene/
+3d_model
 */__pycache__
 __pycache__
 *.zip
 .vscode
 cam_output/
+hcis-data/
+*multicam_
+*multicam__
