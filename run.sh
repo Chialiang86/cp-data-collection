@@ -52,8 +52,8 @@ if [ $# -ge 1 ]; then
     
     elif [ $function = 'somatch' ]; then 
         if [ $# -eq 3 ]; then
-            SCENE_PCD="3d_scene/$2/pcd.ply"
-            SCENE_JSON="3d_scene/$2/pcd.json"
+            SCENE_PCD="3d_scene/$2" # dynamic_pcd_0.ply
+            SCENE_JSON="3d_scene/$2/dynamic_pcd_0.json" # dynamic_pcd_0.json
             OBJ_PCD="3d_model/$3/$3_pcd.ply"
             OBJ_JSON="3d_model/$3/$3_pcd.json"
             python3 scene_obj_matching.py --scene_pcd $SCENE_PCD --scene_json $SCENE_JSON --obj_pcd $OBJ_PCD --obj_json $OBJ_JSON
