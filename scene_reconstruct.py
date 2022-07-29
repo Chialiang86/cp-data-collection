@@ -7,6 +7,7 @@ import open3d as o3d
 from tqdm import tqdm
 import json
 import time
+from PIL import Image
 
 def create_rgbd(rgb, depth, intr, extr, dscale):
     assert rgb.shape[:2] == depth.shape
@@ -96,7 +97,7 @@ def tsdf_fusion(rgbds, voxel_length=0.005, sdf_trunc=0.015):
 
     return mesh, pcd
 
-def render(pcd, extr : np.ndarray, intr : np.ndarray, path : str, duration=0):
+def render(pcd, extr : np.ndarray, intr : np.ndarray, duration=0):
     assert extr.shape == (4, 4)
     assert intr.shape == (6,)
 
@@ -130,14 +131,15 @@ def render(pcd, extr : np.ndarray, intr : np.ndarray, path : str, duration=0):
     # Capture image
     time.sleep(duration)
     # vis.capture_screen_image(path)
-    # image = vis.capture_screen_float_buffer()
+    image = vis.capture_screen_float_buffer()
+    print(image)
 
     # Close
     vis.destroy_window()
-    print(f'{path} saved')
+    # print(f'{path} saved')
+    return np.asarray(image)
 
-
-def reconstruct_scene(extrinsic_dicts, mat_files, out_dir, mesh_path='mesh.obj', pcd_path='pcd.ply'):
+def reconstruct_scene(extrinsic_dicts, mat_files, render_extrs):
     
     rgbds = []
     master_index = -1
@@ -178,11 +180,14 @@ def reconstruct_scene(extrinsic_dicts, mat_files, out_dir, mesh_path='mesh.obj',
                             render_intr_mat[1, 1], 
                             render_shape[1] / 2.0 - 0.5,  # need to be this formula
                             render_shape[0] / 2.0 - 0.5]) # need to be this formula
-    render_extr = rgbds[master_index]['extr']
-    render(pcd, render_extr, render_intr, path=f'{out_dir}/{pcd_path}.jpg', duration=0)
+                    
+    img_arrays = []
+    for render_extr in render_extrs:
+        img_array = render(pcd, render_extr, render_intr, duration=0)
+        img_arrays.append(img_array)
 
     # save point cloud
-    o3d.io.write_point_cloud(f'{out_dir}/{pcd_path}', pcd)
+    return pcd, img_arrays
 
 def main(args):
     root = args.root
@@ -218,6 +223,17 @@ def main(args):
     #                     mesh_path='static_mesh.obj', pcd_path='static_pcd.ply')
 
     # for dynamic scene
+
+    render_extr_right = np.array([[1.0000000,  0.0000000,  0.0000000,    0.3],
+                            [0.0000000,  0.5000000,  0.8660254,    -1],
+                            [0.0000000, -0.8660254,  0.5000000,    0.6],
+                            [0.0000000,  0.0000000,  0.0000000,    1.]])
+    render_extr_top = np.array([[1.0000000,  0.0000000,  0.0000000,    0.],
+                            [0.0000000,  1.0000000,  0.0000000,    0.],
+                            [0.0000000,  0.0000000,  1.0000000,    0.8],
+                            [0.0000000,  0.0000000,  0.0000000,    1.]])
+    render_extrs = [render_extr_right, render_extr_top]
+
     dynamic_mat_dirs = glob.glob(f'{in_dir}/*')
     dynamic_mat_files_list = []
     for dynamic_mat_dir in dynamic_mat_dirs:
@@ -226,11 +242,18 @@ def main(args):
         dynamic_mat_files_list.append(dynamic_mat_files)
     dynamic_mat_files_list = np.asarray(dynamic_mat_files_list, dtype=str)
 
-    for i in range(0, dynamic_mat_files_list.shape[1], ):
+    img_arrays_list = [[] for i in range(len(render_extrs))]
+    for i in range(0, dynamic_mat_files_list.shape[1]):
         # print(dynamic_mat_files_list[:, i])
-        reconstruct_scene(extrinsic_dicts, dynamic_mat_files_list[:, i], out_dir, 
-                            mesh_path=f'dynamic_mesh_{i}.obj', pcd_path=f'dynamic_pcd_{i}.ply')
+        pcd, img_arrays = reconstruct_scene(extrinsic_dicts, dynamic_mat_files_list[:, i], render_extrs)
+        for j in range(len(img_arrays)):
+            img_arrays_list[j].append(img_arrays[j])
+        o3d.io.write_point_cloud(f'{out_dir}/dynamic_pcd_{i}.ply', pcd)
 
+    for j in range(len(render_extrs)):
+        img_arrays_list[j] = [Image.fromarray(frame) for frame in img_arrays_list[j]]
+        img_arrays_list[j][0].save(f'{out_dir}/dynamic_pcd_view{i}.jif', save_all=True, append_images=img_arrays_list[j][1:], duration=50, loop=0)
+    
 
 
 if __name__=="__main__":

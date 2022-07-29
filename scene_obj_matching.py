@@ -227,8 +227,8 @@ def main(args):
     imgs_right = [Image.fromarray(frame) for frame in frames_right]
     imgs_top = [Image.fromarray(frame) for frame in frames_top]
     # duration is the number of milliseconds between frames; this is 40 frames per second
-    # imgs_right[0].save(f'{render_out_dir}/render_right.gif', save_all=True, append_images=imgs_right[1:], duration=50, loop=0)
-    # imgs_top[0].save(f'{render_out_dir}/render_top.gif', save_all=True, append_images=imgs_top[1:], duration=50, loop=0)
+    imgs_right[0].save(f'{render_out_dir}/render_right.gif', save_all=True, append_images=imgs_right[1:], duration=50, loop=0)
+    imgs_top[0].save(f'{render_out_dir}/render_top.gif', save_all=True, append_images=imgs_top[1:], duration=50, loop=0)
 
     # draw lines
     print(np.array(line_points)[:, :3])
@@ -236,8 +236,6 @@ def main(args):
     line_set.points = o3d.utility.Vector3dVector(np.array(line_points)[:, :3])
     line_set.lines = o3d.utility.Vector2iVector(np.array([[i, i+1] for i in range(len(line_points)-1)]))
     line_set.colors = o3d.utility.Vector3dVector(np.array([[0, 1, 0] for i in range(len(line_points)-1)]))
-
-    # after alignment
 
     # vis = o3d.visualization.Visualizer()
     # vis.create_window("Keypoint Trajectory")
