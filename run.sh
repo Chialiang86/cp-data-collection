@@ -16,6 +16,11 @@ if [ $# -ge 1 ]; then
         else 
             python3 camera_capturer.py --root 'cam_output' --out_dir '0531-1'
         fi
+
+    elif [ $function = 'camcapext' ]; then # capture for extrinsic calibration
+    
+        TIME=$(date +%Y%m%d_%H%M)
+        python3 camera_capturer.py --root 'calibration' --out_dir "multicam_${TIME}"
     
     elif [ $function = 'catchcp' ]; then 
         if [ $# -eq 2 ]; then
@@ -43,20 +48,26 @@ if [ $# -ge 1 ]; then
         fi
 
     elif [ $function = 'srecon' ]; then 
-        if [ $# -eq 2 ]; then
+        if [ $# -eq 3 ]; then
             INPUT=$2
-            python3 scene_reconstruct.py --root 'cam_output' --in-dir ${INPUT} --out-dir ${INPUT}
-        else 
-            python3 scene_reconstruct.py --root 'cam_output' --in-dir '0531-1' --out-dir 'annotation'
+            EXT=$3
+            python3 scene_reconstruct.py --root 'cam_output' --in-dir ${INPUT} --out-dir ${INPUT} --extr-dir ${EXT}
+        # else 
+        #     ARR=('20220729_183142' '20220729_183526_scissor' '20220729_183654_scissor' '20220729_183818' '20220729_183849' '20220729_184052' '20220729_184111' '20220729_184134' '20220729_184153' '20220729_184607')
+        #     for input in "${ARR[@]}"; do
+        #         # echo $input
+        #         python3 scene_reconstruct.py --root 'cam_output' --in-dir $input --out-dir $input
+        #     done
         fi
     
     elif [ $function = 'somatch' ]; then 
         if [ $# -eq 3 ]; then
+            SCENE_RGB="cam_output/$2"
             SCENE_PCD="3d_scene/$2" # dynamic_pcd_0.ply
             SCENE_JSON="3d_scene/$2/dynamic_pcd_0.json" # dynamic_pcd_0.json
             OBJ_PCD="3d_model/$3/$3_pcd.ply"
             OBJ_JSON="3d_model/$3/$3_pcd.json"
-            python3 scene_obj_matching.py --scene_pcd $SCENE_PCD --scene_json $SCENE_JSON --obj_pcd $OBJ_PCD --obj_json $OBJ_JSON
+            python3 scene_obj_matching.py --scene_rgb $SCENE_RGB --scene_pcd $SCENE_PCD --scene_json $SCENE_JSON --obj_pcd $OBJ_PCD --obj_json $OBJ_JSON
         fi
 
     elif [ $function = 'pcd' ]; then 
@@ -91,7 +102,7 @@ if [ $# -ge 1 ]; then
         fi
     
     else
-    
+
         echo "function error : $function"
 
     fi 

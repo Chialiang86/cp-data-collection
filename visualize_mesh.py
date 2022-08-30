@@ -4,7 +4,7 @@ import os
 import cv2
 
 def main():
-    obj_path = '3d_scene/20220727_172855_broom/dynamic_pcd_0.ply'
+    obj_path = '3d_scene/20220729_183526_scissor/dynamic_pcd_0.ply'
 
     pcd = o3d.io.read_point_cloud(obj_path)
 

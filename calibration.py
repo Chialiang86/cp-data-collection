@@ -1,8 +1,10 @@
 import numpy as np
 import math3d as m3d
 import transforms3d as tf3d
+import argparse
 from utils.realsense_cam import realsense_cam
 import os, cv2, glob, time, joblib, json, threading
+from scipy.spatial.transform import Rotation as R
 
 # for multi cam
 from utils.utils import solve_pose, print_m3d_pose
@@ -136,14 +138,26 @@ def multicam_calib_from_png(src_dir, board_name='board4x6', target_path='./calib
             cam1Tcam2_seq.append(cam1Tcam2)
     cv2.destroyAllWindows()
     
-    optim_cam1Tcam2 = opt_poses(cam1Tcam2_seq) # use minisam
-    print_m3d_pose(optim_cam1Tcam2, f'Optimal {cam1_serialnum} to {cam2_serialnum} pose')
+    # optim_cam1Tcam2 = opt_poses(cam1Tcam2_seq) # use minisam
+    # print_m3d_pose(optim_cam1Tcam2, f'Optimal {cam1_serialnum} to {cam2_serialnum} pose')
+
+    pos_eulers = []
+    for cam1Tcam2 in cam1Tcam2_seq:
+        cam1Tcam2_np = cam1Tcam2.get_matrix()
+        pos_euler = np.concatenate((cam1Tcam2_np[:3, 3], R.from_matrix(cam1Tcam2_np[:3, :3]).as_rotvec()))
+        pos_eulers.append(pos_euler)
+    pos_eulers = np.asarray(pos_eulers)
+    pos_euler_mean = np.mean(pos_eulers, axis=0)
+    optim_cam1Tcam2 = np.identity(4)
+    optim_cam1Tcam2[:3, :3] = R.from_rotvec(pos_euler_mean[3:]).as_matrix()
+    optim_cam1Tcam2[:3, 3] = pos_euler_mean[:3]
     
     json_dict = {
         'master': cam1_serialnum,
         'slave': cam2_serialnum,
         # 'extr_seq': [cam1Tcam2.get_matrix().tolist() for cam1Tcam2 in cam1Tcam2_seq],
-        'extr_opt':  optim_cam1Tcam2.get_matrix().tolist()
+        # 'extr_opt':  optim_cam1Tcam2.get_matrix().tolist()
+        'extr_opt':  optim_cam1Tcam2.tolist()
     }
 
     with open(f'{target_path}{cam1_serialnum}-{cam2_serialnum}.json', 'w') as f:
@@ -201,6 +215,7 @@ def multicam_calib(cam1, cam2, board_name='board4x6', target_path='./calibration
     
     optim_cam1Tcam2 = opt_poses(cam1Tcam2_seq) # use minisam
     print_m3d_pose(optim_cam1Tcam2, f'Optimal {cam1.serial_num} to {cam2.serial_num} pose')
+
     
     json_dict = {
         'master': cam1.serial_num,
@@ -325,7 +340,10 @@ def solve_transform(target_path='./calibration/handeye_calib_ur10/',
     print(f'{target_path}{baseThand_name}_seq.pkl saved.')
     print(f'{target_path}{worldTeye_name}_seq.pkl saved.')
 
-def main():
+def main(args):
+
+    ext_dir = args.ext_dir
+
     serial_nums = realsense_cam.get_realsense_serial_num()
     serial_nums.sort() # smallest one as master
 
@@ -363,13 +381,16 @@ def main():
         if key == 'e': # extrinsic
             if len(cams) >= 2:
                 # workers = []
+                target_path = f'./calibration/{ext_dir}/'
+                assert os.path.exists(target_path), f'{target_path} not exists'
                 for i in range(1, len(cams)):
                     # workers.append(threading.Thread(target=multicam_calib, args=(cams[0], cams[i + 1], 'board4x6', './calibration/multicam/')))
-                    multicam_calib(cams[0], cams[i], board_name='board4x6', target_path='./calibration/multicam/')
+                    multicam_calib(cams[0], cams[i], board_name='board4x6', target_path=f'./calibration/{target_path}/')
 
         if key == 'es': # extrinsic
 
-            root = 'calibration/multicam'
+            root = f'calibration/{ext_dir}'
+            assert os.path.exists(root), f'{root} not exists'
             dirs = os.listdir(root)
 
             for dir in dirs:
@@ -379,4 +400,7 @@ def main():
                     multicam_calib_from_png(src_dir, board_name='board4x6')
     
 if __name__=="__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--ext_dir', '-ed', type=str, default='multicam')
+    args = parser.parse_args()
+    main(args)

@@ -1,10 +1,11 @@
 import argparse
 import numpy as np
 import scipy.io as sio
-import glob
-import os
+from PIL import Image
 import open3d as o3d
 from tqdm import tqdm
+import glob
+import os
 import json
 import time
 from PIL import Image
@@ -60,7 +61,7 @@ def crop_mesh(mesh, pt1, pt2):
     )
     mesh = mesh.crop(bbox)
 
-def tsdf_fusion(rgbds, voxel_length=0.005, sdf_trunc=0.015):
+def tsdf_fusion(rgbds, voxel_length=0.002, sdf_trunc=0.006):
     
     tsdf_volume = o3d.pipelines.integration.ScalableTSDFVolume(
         voxel_length=voxel_length,
@@ -68,7 +69,7 @@ def tsdf_fusion(rgbds, voxel_length=0.005, sdf_trunc=0.015):
         color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8
     )
 
-    for rgbd_info in tqdm(rgbds):
+    for rgbd_info in rgbds:
         height, width = rgbd_info['depth'].shape
         rgbd_info['color'] = rgbd_info['color'][...,::-1].copy()
         color, depth = o3d.geometry.Image(rgbd_info['color']), o3d.geometry.Image(rgbd_info['depth'])
@@ -97,7 +98,7 @@ def tsdf_fusion(rgbds, voxel_length=0.005, sdf_trunc=0.015):
 
     return mesh, pcd
 
-def render(pcd, extr : np.ndarray, intr : np.ndarray, duration=0):
+def render(pcd, extr : np.ndarray, intr : np.ndarray, duration : int = 0):
     assert extr.shape == (4, 4)
     assert intr.shape == (6,)
 
@@ -132,12 +133,11 @@ def render(pcd, extr : np.ndarray, intr : np.ndarray, duration=0):
     time.sleep(duration)
     # vis.capture_screen_image(path)
     image = vis.capture_screen_float_buffer()
-    print(image)
 
     # Close
     vis.destroy_window()
     # print(f'{path} saved')
-    return np.asarray(image)
+    return (np.asarray(image) * 255).astype(np.uint8)
 
 def reconstruct_scene(extrinsic_dicts, mat_files, render_extrs):
     
@@ -224,15 +224,15 @@ def main(args):
 
     # for dynamic scene
 
-    render_extr_right = np.array([[1.0000000,  0.0000000,  0.0000000,    0.3],
+    render_extr_right = np.array([[1.0000000,  0.0000000,  0.0000000,    0.1],
                             [0.0000000,  0.5000000,  0.8660254,    -1],
-                            [0.0000000, -0.8660254,  0.5000000,    0.6],
+                            [0.0000000, -0.8660254,  0.5000000,    0.8],
                             [0.0000000,  0.0000000,  0.0000000,    1.]])
     render_extr_top = np.array([[1.0000000,  0.0000000,  0.0000000,    0.],
                             [0.0000000,  1.0000000,  0.0000000,    0.],
-                            [0.0000000,  0.0000000,  1.0000000,    0.8],
+                            [0.0000000,  0.0000000,  1.0000000,    0.5],
                             [0.0000000,  0.0000000,  0.0000000,    1.]])
-    render_extrs = [render_extr_right, render_extr_top]
+    render_extrs = [render_extr_right]
 
     dynamic_mat_dirs = glob.glob(f'{in_dir}/*')
     dynamic_mat_files_list = []
@@ -243,8 +243,7 @@ def main(args):
     dynamic_mat_files_list = np.asarray(dynamic_mat_files_list, dtype=str)
 
     img_arrays_list = [[] for i in range(len(render_extrs))]
-    for i in range(0, dynamic_mat_files_list.shape[1]):
-        # print(dynamic_mat_files_list[:, i])
+    for i in tqdm(range(0, dynamic_mat_files_list.shape[1])):
         pcd, img_arrays = reconstruct_scene(extrinsic_dicts, dynamic_mat_files_list[:, i], render_extrs)
         for j in range(len(img_arrays)):
             img_arrays_list[j].append(img_arrays[j])
@@ -252,9 +251,13 @@ def main(args):
 
     for j in range(len(render_extrs)):
         img_arrays_list[j] = [Image.fromarray(frame) for frame in img_arrays_list[j]]
-        img_arrays_list[j][0].save(f'{out_dir}/dynamic_pcd_view{i}.jif', save_all=True, append_images=img_arrays_list[j][1:], duration=50, loop=0)
+        img_arrays_list[j][0].save(f'{out_dir}/dynamic_pcd_view{j}.gif', save_all=True, append_images=img_arrays_list[j][1:], duration=50, loop=0)
     
-
+    # log information
+    log_fname = f'{out_dir}/log.txt'
+    with open(log_fname, 'w') as f:
+        f.write(f'extrinsic_dirs : {extr_dir}')
+    
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser()
